@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+.claude/
+*.egg-info/
+build/
+dist/
+.DS_Store
+flagged/
+gradio_cached_examples/
+.ipynb_checkpoints/
