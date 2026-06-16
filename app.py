@@ -146,28 +146,31 @@ def _build_excel(papers: list[dict]) -> str:
 
 def handle_keyword_export(keywords, progress=gr.Progress()):
     if not keywords.strip():
-        return None, "Please enter keywords to search."
+        yield None, "Please enter keywords to search."
+        return
     try:
         progress(0.05, desc="Searching PubMed and Semantic Scholar...")
+        yield None, "Searching PubMed and Semantic Scholar..."
         papers = fetch_papers_for_export(keywords.strip(), total=15)
         if not papers:
-            return None, "No papers found. Try broader or different keywords."
+            yield None, "No papers found. Try broader or different keywords."
+            return
 
         n = len(papers)
         enriched = []
         for i, paper in enumerate(papers):
-            progress(
-                0.1 + (i / n) * 0.82,
-                desc=f"Summarizing paper {i + 1} of {n}: {paper['title'][:60]}...",
-            )
+            desc = f"Summarizing paper {i + 1} of {n}: {paper['title'][:55]}..."
+            progress(0.1 + (i / n) * 0.82, desc=desc)
+            yield None, desc
             enriched.append(summarize_paper_for_export(paper))
 
         progress(0.95, desc="Building Excel file...")
+        yield None, "Building Excel file..."
         filepath = _build_excel(enriched)
         progress(1.0, desc="Done!")
-        return filepath, f"✓ Found and summarized **{n} papers**. Click below to download."
+        yield filepath, f"✓ Found and summarized **{n} papers**. Download ready."
     except Exception as exc:
-        return None, f"Error: {exc}"
+        yield None, f"Error: {exc}"
 
 
 with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
@@ -206,6 +209,7 @@ with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
                 handle_pdf,
                 [pdf_file, length_choice, structured_toggle],
                 [pdf_preview, pdf_summary, pdf_stats],
+                api_name="summarize_pdf",
             )
 
         with gr.Tab("✏️ Paste Text"):
@@ -222,6 +226,7 @@ with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
                 handle_text,
                 [text_input, length_choice, structured_toggle],
                 [text_summary, text_stats],
+                api_name="summarize_text",
             )
 
         with gr.Tab("🔎 PubMed Fetch"):
@@ -238,6 +243,7 @@ with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
                 handle_pubmed,
                 [pmid_input, length_choice, structured_toggle],
                 [pmid_abstract, pmid_summary, pmid_stats],
+                api_name="summarize_pubmed",
             )
 
         with gr.Tab("🔬 Keyword → Excel"):
@@ -257,6 +263,7 @@ with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
                 handle_keyword_export,
                 [keyword_input],
                 [keyword_file, keyword_status],
+                api_name="keyword_export",
             )
 
     gr.Markdown(
