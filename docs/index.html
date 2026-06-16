@@ -544,12 +544,15 @@
   function gradioStream(fn, eventId, onUpdate) {
     return new Promise((resolve, reject) => {
       const es = new EventSource(`${BASE}/gradio_api/call/${fn}/${eventId}`);
+      let lastData = null; // track last generator yield as fallback
 
-      // Intermediate yields from generator functions
       es.addEventListener('process_generating', e => {
         try {
           const d = JSON.parse(e.data);
-          if (onUpdate && d.output?.data) onUpdate(d.output.data);
+          if (d.output?.data) {
+            lastData = d.output.data; // keep latest yielded value
+            if (onUpdate) onUpdate(d.output.data);
+          }
         } catch (_) {}
       });
 
@@ -558,7 +561,9 @@
         try {
           const d = JSON.parse(e.data);
           if (d.success === false) reject(new Error(d.error || 'Server error'));
-          else resolve(d.output.data);
+          // For generator functions process_completed may have null output;
+          // fall back to the last process_generating value in that case.
+          else resolve(d.output?.data ?? lastData);
         } catch (err) { reject(err); }
       });
 
