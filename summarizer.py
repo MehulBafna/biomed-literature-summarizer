@@ -130,3 +130,70 @@ def _parse_structured(response_text):
     for header in _SECTION_HEADERS:
         result.setdefault(_SECTION_LABELS[header], _NOT_FOUND)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Per-paper summarization for keyword → Excel export
+# ---------------------------------------------------------------------------
+
+_EXPORT_HEADERS = ("KEY TAKEAWAY", "ABSTRACT SUMMARY", "MATERIALS AND METHODS", "RESULTS")
+
+_EXPORT_LABEL_MAP = {
+    "KEY TAKEAWAY": "key_takeaway",
+    "ABSTRACT SUMMARY": "abstract_summary",
+    "MATERIALS AND METHODS": "materials_methods",
+    "RESULTS": "results",
+}
+
+_EXPORT_INSTRUCTIONS = f"""You are extracting structured information from a biomedical research paper abstract for a systematic literature review spreadsheet.
+
+Given the title and abstract below, produce exactly these four fields:
+
+{_EXPORT_HEADERS[0]} (1 sentence): The single most important contribution or finding of this paper.
+{_EXPORT_HEADERS[1]} (2-3 sentences): Concise summary of the full abstract including background and objective.
+{_EXPORT_HEADERS[2]} (1-2 sentences): Study design, dataset, and key methodology. Write "{_NOT_FOUND}" if not described in the abstract.
+{_EXPORT_HEADERS[3]} (1-2 sentences): Main quantitative or qualitative results and conclusions. Write "{_NOT_FOUND}" if not described in the abstract.
+
+Use only information present in the provided text. Do not invent numbers, study designs, or outcomes.
+
+Respond with exactly these four headers each followed by their content and nothing else:
+
+{_EXPORT_HEADERS[0]}:
+...
+
+{_EXPORT_HEADERS[1]}:
+...
+
+{_EXPORT_HEADERS[2]}:
+...
+
+{_EXPORT_HEADERS[3]}:
+..."""
+
+
+def summarize_paper_for_export(paper: dict) -> dict:
+    """Run Claude on one paper's title+abstract; return the paper dict enriched with summary fields."""
+    client = _client()
+    content = f"TITLE: {paper['title']}\n\nABSTRACT: {paper['abstract']}"
+    message = client.messages.create(
+        model=MODEL_NAME,
+        max_tokens=512,
+        messages=[{
+            "role": "user",
+            "content": f"{_EXPORT_INSTRUCTIONS}\n\n{content}",
+        }],
+    )
+    parsed = _parse_export_summary(message.content[0].text)
+    return {**paper, **parsed}
+
+
+def _parse_export_summary(text: str) -> dict:
+    pattern = "|".join(re.escape(h) for h in _EXPORT_HEADERS)
+    parts = re.split(rf"(?:^|\n)({pattern}):\s*\n?", text)
+    result = {}
+    for i in range(1, len(parts), 2):
+        key = _EXPORT_LABEL_MAP.get(parts[i], parts[i].lower())
+        result[key] = parts[i + 1].strip() if i + 1 < len(parts) else _NOT_FOUND
+    for key in _EXPORT_LABEL_MAP.values():
+        result.setdefault(key, _NOT_FOUND)
+    return result

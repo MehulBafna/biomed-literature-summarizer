@@ -1,14 +1,19 @@
 """Gradio app: abstractive summarization of biomedical research papers."""
 
+import tempfile
+
 import gradio as gr
+import openpyxl
+from openpyxl.styles import Alignment, Font, PatternFill
 
 from document_utils import (
     clean_text,
     extract_text_from_pdf,
+    fetch_papers_for_export,
     fetch_pubmed_abstract,
     get_filepath,
 )
-from summarizer import MODEL_NAME, summarize_document, summarize_structured
+from summarizer import MODEL_NAME, summarize_document, summarize_paper_for_export, summarize_structured
 
 LENGTH_PRESETS = {
     "Short": {"target_words": 80},
@@ -30,6 +35,22 @@ SAMPLE_ABSTRACT = (
     "sepsis detection lead time and may reduce time spent manually reviewing charts "
     "during systematic case review."
 )
+
+_EXCEL_COLUMNS = [
+    ("Title", 55),
+    ("Authors", 28),
+    ("Year", 7),
+    ("Source", 14),
+    ("Key Takeaway", 45),
+    ("Abstract Summary", 55),
+    ("Materials & Methods", 45),
+    ("Results", 45),
+    ("URL", 38),
+]
+
+_HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+_HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+_WRAP = Alignment(wrap_text=True, vertical="top")
 
 
 def estimate_reading_time(text, wpm=200):
@@ -95,15 +116,68 @@ def handle_pubmed(pmid_or_url, length_choice, structured, progress=gr.Progress()
     return abstract, summary, stats
 
 
+def _build_excel(papers: list[dict]) -> str:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Literature Review"
+
+    for col, (header, width) in enumerate(_EXCEL_COLUMNS, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.fill = _HEADER_FILL
+        cell.font = _HEADER_FONT
+        cell.alignment = _WRAP
+        ws.column_dimensions[cell.column_letter].width = width
+
+    field_order = [
+        "title", "authors", "year", "source",
+        "key_takeaway", "abstract_summary", "materials_methods", "results", "url",
+    ]
+    for row, paper in enumerate(papers, 2):
+        for col, field in enumerate(field_order, 1):
+            cell = ws.cell(row=row, column=col, value=paper.get(field, ""))
+            cell.alignment = _WRAP
+        ws.row_dimensions[row].height = 80
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    wb.save(tmp.name)
+    tmp.close()
+    return tmp.name
+
+
+def handle_keyword_export(keywords, progress=gr.Progress()):
+    if not keywords.strip():
+        return None, "Please enter keywords to search."
+    try:
+        progress(0.05, desc="Searching PubMed and Semantic Scholar...")
+        papers = fetch_papers_for_export(keywords.strip(), total=15)
+        if not papers:
+            return None, "No papers found. Try broader or different keywords."
+
+        n = len(papers)
+        enriched = []
+        for i, paper in enumerate(papers):
+            progress(
+                0.1 + (i / n) * 0.82,
+                desc=f"Summarizing paper {i + 1} of {n}: {paper['title'][:60]}...",
+            )
+            enriched.append(summarize_paper_for_export(paper))
+
+        progress(0.95, desc="Building Excel file...")
+        filepath = _build_excel(enriched)
+        progress(1.0, desc="Done!")
+        return filepath, f"✓ Found and summarized **{n} papers**. Click below to download."
+    except Exception as exc:
+        return None, f"Error: {exc}"
+
+
 with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
     gr.Markdown(
         """
         # 🧬 Biomedical Literature Summarizer
 
         Abstractive summarization of biomedical research papers using
-        **Claude**. Upload a paper, paste text, or pull an abstract straight
-        from PubMed to get a concise digest of key findings — built to speed
-        up systematic literature review workflows.
+        **Claude**. Upload a paper, paste text, pull an abstract from PubMed,
+        or search by keyword to export a full literature review to Excel.
         """
     )
 
@@ -164,6 +238,25 @@ with gr.Blocks(title="Biomedical Literature Summarizer") as demo:
                 handle_pubmed,
                 [pmid_input, length_choice, structured_toggle],
                 [pmid_abstract, pmid_summary, pmid_stats],
+            )
+
+        with gr.Tab("🔬 Keyword → Excel"):
+            gr.Markdown(
+                "Search PubMed and Semantic Scholar for up to 15 relevant papers, "
+                "summarize each with Claude, and download the results as an Excel file."
+            )
+            keyword_input = gr.Textbox(
+                label="Research keywords",
+                placeholder="e.g.  CRISPR liver cancer gene editing  |  deep learning chest X-ray  |  COVID-19 cytokine storm biomarkers",
+                lines=2,
+            )
+            keyword_btn = gr.Button("Search & Export to Excel", variant="primary")
+            keyword_status = gr.Markdown()
+            keyword_file = gr.File(label="Download Excel", file_types=[".xlsx"])
+            keyword_btn.click(
+                handle_keyword_export,
+                [keyword_input],
+                [keyword_file, keyword_status],
             )
 
     gr.Markdown(
