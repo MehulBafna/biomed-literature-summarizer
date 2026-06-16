@@ -168,14 +168,38 @@ def search_semantic_scholar(query: str, max_results: int = 8) -> list[dict]:
     return papers
 
 
+def _clean_query(query: str) -> str:
+    """Normalise a user query for PubMed: replace punctuation separators with spaces."""
+    q = re.sub(r"[;,/|()]+", " ", query)   # semicolons / commas / pipes → spaces
+    q = re.sub(r"\s{2,}", " ", q)           # collapse runs of spaces
+    return q.strip()
+
+
+def _fallback_queries(query: str) -> list[str]:
+    """Return progressively shorter versions of the query to try when the full query returns 0."""
+    words = query.split()
+    fallbacks = []
+    # Drop one word at a time from the right until ≥2 words remain
+    for end in range(len(words) - 1, 1, -1):
+        fallbacks.append(" ".join(words[:end]))
+    return fallbacks
+
+
 def fetch_papers_for_export(query: str, total: int = 15) -> list[dict]:
     """Search PubMed (primary) + Semantic Scholar (supplement), deduplicate, return up to `total` papers."""
-    # PubMed is authoritative for biomedical literature; fetch the full quota first
-    pubmed = search_pubmed_keywords(query, max_results=total)
+    base_query = _clean_query(query)
 
-    # Only call Semantic Scholar if PubMed came up short (also handles SS rate-limit gracefully)
+    # Try the cleaned query first; if empty, fall back to shorter versions
+    queries_to_try = [base_query] + _fallback_queries(base_query)
+    pubmed: list[dict] = []
+    for q in queries_to_try:
+        pubmed = search_pubmed_keywords(q, max_results=total)
+        if pubmed:
+            break   # found results — stop trying
+
+    # Supplement with Semantic Scholar if PubMed came up short
     shortfall = total - len(pubmed)
-    semantic = search_semantic_scholar(query, max_results=shortfall + 3) if shortfall > 0 else []
+    semantic = search_semantic_scholar(base_query, max_results=shortfall + 3) if shortfall > 0 else []
 
     seen = set()
     merged = []
