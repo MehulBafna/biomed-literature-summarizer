@@ -1,6 +1,7 @@
 """Turn research-paper sources (PDF, raw text, PubMed) into clean plain text."""
 
 import re
+import time
 
 import requests
 from pypdf import PdfReader
@@ -10,6 +11,20 @@ PUBMED_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 
 _SS_HEADERS = {"User-Agent": "BiomedLiteratureSummarizer/1.0 (research tool)"}
+
+
+def _get_with_retry(url: str, params: dict, timeout: int = 30, retries: int = 4) -> requests.Response:
+    """GET with exponential backoff on 429 Too Many Requests."""
+    for attempt in range(retries):
+        resp = requests.get(url, params=params, timeout=timeout)
+        if resp.status_code == 429:
+            wait = 2 ** attempt          # 1 s, 2 s, 4 s, 8 s
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        return resp
+    resp.raise_for_status()
+    return resp
 
 
 def get_filepath(file_obj):
@@ -56,8 +71,7 @@ def fetch_pubmed_abstract(pmid_or_url: str) -> str:
     """Fetch the title + abstract for a PubMed ID via NCBI E-utilities."""
     pmid = extract_pmid(pmid_or_url)
     params = {"db": "pubmed", "id": pmid, "rettype": "medline", "retmode": "text"}
-    response = requests.get(PUBMED_EFETCH_URL, params=params, timeout=15)
-    response.raise_for_status()
+    response = _get_with_retry(PUBMED_EFETCH_URL, params=params)
     raw = response.text
 
     title = _medline_field(raw, "TI")
@@ -84,7 +98,7 @@ def _parse_authors(raw_authors: list[str], limit: int = 3) -> str:
 def search_pubmed_keywords(query: str, max_results: int = 10) -> list[dict]:
     """Search PubMed by keyword and return paper metadata dicts."""
     # Step 1: get PMIDs ranked by relevance
-    esearch_resp = requests.get(
+    esearch_resp = _get_with_retry(
         PUBMED_ESEARCH_URL,
         params={
             "db": "pubmed",
@@ -93,20 +107,19 @@ def search_pubmed_keywords(query: str, max_results: int = 10) -> list[dict]:
             "sort": "relevance",
             "retmode": "json",
         },
-        timeout=15,
     )
-    esearch_resp.raise_for_status()
     ids = esearch_resp.json().get("esearchresult", {}).get("idlist", [])
     if not ids:
         return []
 
+    time.sleep(0.4)  # stay well within NCBI's 3 req/sec unauthenticated limit
+
     # Step 2: batch fetch full records in MEDLINE format
-    efetch_resp = requests.get(
+    efetch_resp = _get_with_retry(
         PUBMED_EFETCH_URL,
         params={"db": "pubmed", "id": ",".join(ids), "rettype": "medline", "retmode": "text"},
         timeout=30,
     )
-    efetch_resp.raise_for_status()
 
     # Split on blank line before each new PMID- block
     records = re.split(r"\n(?=PMID- )", efetch_resp.text.strip())
