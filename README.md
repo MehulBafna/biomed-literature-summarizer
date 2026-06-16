@@ -1,19 +1,32 @@
+---
+title: Biomedical Literature Summarizer
+emoji: 🧬
+colorFrom: blue
+colorTo: green
+sdk: gradio
+sdk_version: 5.50.0
+python_version: '3.12'
+app_file: app.py
+pinned: false
+license: mit
+short_description: Claude-based summarizer for biomedical research papers
+---
+
 # 🧬 Biomedical Literature Summarizer
 
-Abstractive summarization of biomedical research papers, powered by
-**Claude**. Designed to speed up systematic literature review by condensing
-papers down to their key findings.
+**Live demo:** [huggingface.co/spaces/mehulbafna198/Medical_text_Summarizer](https://huggingface.co/spaces/mehulbafna198/Medical_text_Summarizer)
+
+Abstractive summarization of biomedical research papers, powered by **Claude**. Designed to speed up systematic literature review.
 
 ## Features
 
 - **PDF upload** — extracts and summarizes the full text of a research paper PDF
 - **Paste text** — summarize any abstract or passage directly
-- **PubMed fetch** — pull the title + abstract for a PMID or PubMed URL via the
-  NCBI E-utilities API and summarize it
-- **Structured summary** — splits the summary into Abstract Summary / Materials
-  and Methods / Results and Discussion sections
-- **Reading-time stats** — shows estimated reading time for the original text
-  vs. the summary, as a proxy for time saved during literature review
+- **PubMed fetch** — pull the title + abstract for a PMID or PubMed URL via the NCBI E-utilities API and summarize it
+- **Keyword → Excel export** — search PubMed and Semantic Scholar by keyword, retrieve up to 15 relevant papers, summarize each with Claude, and download a structured Excel file (title, authors, key takeaway, methods, results)
+- **Structured summary** — splits the summary into Abstract Summary / Materials and Methods / Results and Discussion sections
+- **Biomedical scope guard** — rejects non-biomedical input with a clear message
+- **Reading-time stats** — shows estimated reading time saved during literature review
 
 ## Model
 
@@ -24,8 +37,8 @@ papers down to their key findings.
 | File | Purpose |
 | --- | --- |
 | `app.py` | Gradio UI and request handlers |
-| `summarizer.py` | Claude API calls for plain and structured summarization |
-| `document_utils.py` | PDF text extraction, text cleaning, PubMed fetching |
+| `summarizer.py` | Claude API calls for plain, structured, and batch export summarization |
+| `document_utils.py` | PDF extraction, text cleaning, PubMed and Semantic Scholar search |
 | `requirements.txt` | Python dependencies |
 
 ## Run locally
@@ -48,28 +61,21 @@ Then run:
 python app.py
 ```
 
-Open the printed `http://127.0.0.1:7860` URL in your browser.
+Open `http://127.0.0.1:7860` in your browser.
 
 ## Deploy to Hugging Face Spaces
 
-1. Create a new Space at https://huggingface.co/new-space with:
-   - SDK: **Gradio**
-   - Visibility: your choice
-2. Add it as a git remote and push this repo:
+1. Create a Space at https://huggingface.co/new-space (SDK: **Gradio**)
+2. Add it as a git remote and push:
 
 ```powershell
-git remote add space https://huggingface.co/spaces/<your-username>/<space-name>
+git remote add space https://huggingface.co/spaces/<username>/<space-name>
 git push space main
 ```
 
-3. In the Space's **Settings → Variables and secrets**, add a secret named
-   `ANTHROPIC_API_KEY` with your Anthropic API key.
-4. The Space builds automatically and serves `app.py` at
-   `https://huggingface.co/spaces/<your-username>/<space-name>`.
+3. In **Settings → Variables and secrets**, add `ANTHROPIC_API_KEY`.
 
 ## Notes
 
-- Each summary is a single Claude API call — billed per the
-  [Anthropic API pricing](https://www.anthropic.com/pricing).
-- PDF text extraction quality depends on how the PDF was generated — scanned
-  (image-only) PDFs need OCR, which isn't included here.
+- Each summary is a single Claude API call — billed per [Anthropic API pricing](https://www.anthropic.com/pricing).
+- PDF text extraction requires text-based PDFs; scanned/image PDFs need OCR (not included).
